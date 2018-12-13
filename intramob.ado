@@ -18,20 +18,30 @@ Output:             dta xlsx
 program define intramob, rclass 
 version 14
 syntax [anything(name=equation id="equation list")] [if] [in] [using/] [aw fw iw pw] , [	/* 	
-		*/  Yvar(varname)               /*  Y var
-		*/  Xvar(varlist)               /*  Covariates
-		*/  PLVALues(numlist)           /*  Poverty lines values
-		*/  PLVARs(varlist)             /*  Poverty lines variable
-		*/  METhod(string)              /*  Estimation methodology
-		*/  by(varname numeric)         /*  by, in case using not selected
-		*/  reverse                     /*  Reverse order in by(varname)
-		*/  noLOG                       /*  Logarithmic form
-		*/  noGEN                       /*  No generate variable
-		*/  WFname(string)              /*  Welfare variable name
-		*/  MBname(string)              /*  Mobility var name
-		*/  APname(string)              /*  Actual poor var name
-		*/  PPname(string)              /*  Predicted poor var name
-		*/ 	*			                      /// options for other commands 
+		*/  Yvar(varname)                         /*  Y var
+		*/  Xvar(varlist)                         /*  Covariates
+		*/  PLVALues(numlist)                     /*  Poverty lines values
+		*/  PLVARs(varlist)                       /*  Poverty lines variable
+		*/  METhod(string)                        /*  Estimation methodology
+		*/  by(varname numeric)                   /*  by, in case using not selected
+		*/  reverse                               /*  Reverse order in by(varname)
+		*/  LAMbdas(numlist)                      /*  Lambda
+		*/  ALPhas(numlist >=0 <=1 sort)          /*  Alphas
+		*/  GAMmas(numlist >=0 <=1 sort)          /*  Gammas
+		*/  DELtas(numlist integer max=2 >=0 <=1) /*  Delta
+		*/  REGModels(string)                     /*  Regression models
+		*/  REGOpts(string)                       /*  options for regress command for REGModels == "reg"
+		*/  LASOpts(string)                       /*  options for lassso2 command for REGModels == "las"
+		*/  LASMINcrit(string)                    /*  options for lassso2 command for REGModels == "las"
+		*/  retro1(string)                        /*  retrospective variables in time 1
+		*/  retro2(string)                        /*  retrospective variables in time 2
+		*/  hhid(string)                          /*  household ID of survey in year 2
+		*/  noLOG                                 /*  Logarithmic form
+		*/  noGENY                                /*  No generate welfare variable
+		*/  GENP                                  /*  Generate pov status variable
+		*/  NRep(integer 100)                     /*  Replace existing variables
+		*/  replace                               /*  Replace existing variables
+		*/ 	*			                                /// options for other commands 
 		]  
 
 marksample touse
@@ -66,21 +76,37 @@ foreach ado of local sscados {
 	}
 }
 
+*------- Consistency of forumulas
 
-* Methods available
-if ("`method'" == "") local method "lasso"
+if ("`regmodels'" == "") local regmodels "lasso regress"
 
-local methods =  `" "lasso",  "synpan" "'   // add more methods
-if !inlist("`method'", `methods') { // add other methods   
-		noi disp in red `"you must select one of the following methods: `methods'"'
-		error
+* -- Lasso or Reg
+if ("`lambdas'" == "") {
+	tempvar grid
+	range `grid' 10 -2 100
+	replace `grid' = (10^`grid')*-1
+	levelsof `grid', local(lambdas)
+	local lambdas: subinstr local lambdas "-" "", all
+	local lambdas = "`lambdas'" // add zero
 }
 
+
+* including errors or not (i.e., Synthetic panel or no).
+if ("`deltas'" == "") local deltas = 0
+
+if !regexm("`deltas'","^[01]$|^0 +1$|^1 +0$") {
+	noi disp in r "{it:deltas} must be either zero (0) or one (1) or zero and one (0 1)"
+	error
+}
+
+*---- Alphas
+if ("`alphas'" == "") local alphas 1
+if ("`gammas'" == "") local gammas 0.5
 
 *---------- `equation' and Yvar and Xvar
 
 if ("`equation'" == "" & "`yvar'" == "" & "`xvar'" == "") {
-	noi disp in r "you must specify either {it:depvar} and {it:indepvars}"
+	noi disp in r "you must specify either {it:equation} of options {it:depvar} and {it:indepvars}"
 	error
 }
 
@@ -117,15 +143,11 @@ if ("`plvalues'" != "") {
 
 
 
-*---------- Logarithmic form
-if ("`log'" != "nolog") {
-	replace `yvar' = ln(`yvar')
-}
-
 
 *---------- Weights and conditions
 local allcond "`if' `in' [`weight' `exp']"
 local wcond   "[`weight' `exp']"
+
 
 *---------- using or by
 if ( ("`using'" == "" & "`by'" == "") |      /* None of them  
@@ -134,6 +156,7 @@ if ( ("`using'" == "" & "`by'" == "") |      /* None of them
 	error
 }  
 
+tempfile idfile
 if ("`by'" != "") {
 	* check it only has two values (this is faster than levelsof)
 	tempvar uniq
@@ -161,16 +184,421 @@ if ("`by'" != "") {
 	tempfile fy1 fy2
 	preserve 
 		keep if `by' == `year2'
+		*--- Household ID
+		if ("`hhid'" == "") {
+			tempvar hhid
+			gen `hhid' = _n
+		}
+		else {
+			cap isid `hhid'
+			if (_rc) {
+				noi disp in r "Warning:" in y "Household ID variable is not unique." _n /* 
+				 */ "an additional ID variable to identify members with household ID will be created."
+					tempvar hhid
+					gen `hhid' = _n
+			}
+		}
+		
 		save `fy2'
+		sum `yvar', meanonly
+		local N2  = `r(N)'
+		
+		keep `hhid'
+		save `idfile'
+ 
 	restore
-	keep if `by' == `year1'
-	
+	keep if `by' == `year1'	
+	save `fy1'
 }
 
 if ("`using'" != "") {
+	tempfile fy1
+	save `fy1'
+	
 	local fy2 = `" "`using'" "'
+	
+	*--- Household ID
+	if ("`hhid'" == "") {
+		use `fy2', clear
+		tempvar hhid
+		gen `hhid' = _n
+		
+		tempfile fy2
+		save `fy2'
+		sum `yvar', meanonly
+		keep `hhid'
+	}
+	else {
+		use `hhid' using `fy2', clear
+		des `yvar' using "`using'", short
+	}
+	local N2  = `r(N)'
+	save `idfile'
+
 }
 
+
+*----------
+
+/*==================================================
+          Implementation of method
+==================================================*/
+
+foreach regm of local regmodels {
+	local regcmd ""
+	local alphause ""
+	
+	if regexm("`regm'", "^las") {
+		local regcmd "lasso2"
+		local modopt "`lasopts' lambda(`lambdas')"
+		local l "p"
+	
+		local alphaoption "alpha(`alpha')"
+	}
+	if regexm("`regm'", "^reg") {
+		local regcmd "regress"
+		local modopt "`regopts'"
+		local l "0"
+		local alphaoption ""
+	}
+	if ("`regcmd'" == "") {
+		noi disp in red "{it:`regm'} is not a {it:regmodels()} valid option."
+		error
+	}
+	
+	
+/*==================================================
+             implementation  
+==================================================*/
+
+*---------- Firs year
+	foreach alpha of local alphas {
+		
+		if regexm("`regm'", "^las") {
+			local alname = round(`alpha'*100, 1)
+		}
+		if regexm("`regm'", "^reg") {
+			local alname      "na"
+		}
+		
+		use `fy1', clear 
+		*--- basic stats of Y1
+		su `yvar' `wcond'
+		local sd1 = `r(sd)'
+		local mu1 = `r(mean)'
+		local N1  = `r(N)'
+			
+		*---------- Logarithmic form
+		if ("`log'" != "nolog") {
+			replace `yvar' = .00001 if `yvar' == 0
+			replace `yvar' = ln(`yvar')
+		}
+		
+		
+		`regcmd' `yvar' `xvar', `modopt' `alphaoption'
+		if regexm("`regm'", "^las") {
+			if ("`lasmincrit'" == "") {
+					local mincrit = "aic" // bic ebic aicc
+				}
+			local lmin  = r(l`mincrit'id)
+			local lmin = "lid(`lmin')"
+		}
+		else local lmin = ""
+
+		tempvar res1
+		predict double `res1' if e(sample), residuals `lmin'
+
+		*---- get new order of population based on Y hat
+
+		if ("`log'" != "nolog") {      // transform back to nominal scale
+			tempvar y_m
+			gen `y_m' = exp(`yvar') 
+		}
+		else {
+			gen `y_m' = `yvar' 
+		}
+		drop if (`res1' == . | `y_m' == .)
+		
+		*--- random sample of survey 1 of size N2
+		local c = ceil(`N2'/`N1')
+		if (`c' > 1) expand `c'
+
+		putmata Y=`y_m' res=`res1', replace 
+		mata: _randvalues(`nrep', `N2', res, Y)		
+		
+		tempvar y1 res1
+		
+		drop _all
+		getmata `y1' = Y 
+		sort `y1'
+		gen __order = _n
+		tempfile match
+		save `match'
+		
+		drop _all
+		getmata `res1'=res
+		label var `res1' " Residual in 1, varname `res1'"
+
+		set seed 12345
+		tempvar sortorder
+		gen `sortorder' = runiform()
+		sort `sortorder'
+		gen __order = _n
+		tempfile res1file
+		save `res1file'
+
+
+		*----------prediction in second year
+		use `fy2', clear
+
+		tempvar yhat
+		predict double `yhat', xb `lmin'
+		
+		* rescale
+
+		if ("`log'" != "nolog") {      // transform back to nominal scale
+			replace `yhat' = exp(`yhat') 
+		}
+		sum `yhat' `wcond'
+		local sd2 = `r(sd)'
+		local mu2 = `r(mean)'
+		
+		
+		*--- estimate residuals of second period
+		if ("`log'" != "nolog") {
+			replace `yvar' = .00001 if `yvar' == 0
+			replace `yvar' = ln(`yvar')
+		}
+		
+		`regcmd' `yvar' `xvar', `modopt' `alphaoption'
+	
+		tempvar res2
+		predict double `res2', residuals `lmin'
+		gen __order = _n
+		merge 1:1 __order using `res1file', nogen 
+		drop __order
+		
+		foreach delta of local deltas {
+			
+			foreach gamma of local gammas {
+				
+				if (`delta' == 1) local ganame = round(`gamma'*100, 1)
+				else              local ganame = "na"
+					
+				tempvar y_pred
+				
+				gen double `y_pred' = `yhat' + ((`res1' *(1-`gamma')) +  /* 
+				 */        (`res2' * `gamma' * (`sd1'/`sd2')))*`delta'
+				 
+				
+				* replace `y_pred' = (((`y_pred'- `mu2') / `sd2') * `sd1') + `mu1'
+				
+				sort `y_pred'
+				gen __order = _n
+				merge 1:1 __order using `match',  nogen /* keep(match) */
+				drop __order
+				
+				* create  if two data bases were used
+				if ("`using'" != "") {
+					local v = 0
+					foreach pl of local plvalues {
+						local ++v
+						local plvar: word `v' of `plvars'
+						gen `plvar' = `pl'
+					}
+				}
+				
+				 
+				local namer = "r_`l'_`alname'_`delta'_`ganame'" // rescaled
+				local namem = "m_`l'_`alname'_`delta'_`ganame'" // matched
+				
+				tempvar Y_`namer' Y_`namem'
+				
+				gen double `Y_`namer'' = `y_pred'
+				gen double `Y_`namem'' = `y1'
+				
+				* -------- Welfare variables
+				if ("`geny'" != "nogeny") {
+					foreach x in Y_`namer' Y_`namem' {
+						cap confirm new var `x'
+						if (_rc) {
+							if ("`replace'" != "") drop `x'
+							else {
+								noi disp in red "variable `x' already exist. use option replace"
+							}
+						}
+						clonevar `x' = ``x''
+					} // end of loop of variables
+				} // end of generate welfare variables condition
+				
+
+				/*==================================================
+							 Calculate  poor status and mobility 
+				==================================================*/
+				local v = 0
+				foreach pl of local plvars {
+					local ++v
+					
+					tempvar p_a_`v' p_a_`v'
+          
+					* Actual poor status
+					gen     `p_a_`v'' = . 
+					replace `p_a_`v'' = 1 if `yvar' < `pl'
+					replace `p_a_`v'' = 0 if `yvar' > `pl' & `yvar' <.
+					
+					if ("`genp'" != "" & "`p_a_ok`v''" != "ok") {
+							cap confirm new var p_a_`v'
+							if (_rc) {
+								if ("`replace'" != "") drop p_a_`v'
+								else {
+									noi disp in red "variable p_a_`v' already exist. use option replace"
+									error
+								}
+							}
+							clonevar p_a_`v' = `p_a_`v''
+							local p_a_ok`v' "ok"
+					}  // end of generate poverty status variables
+					
+					foreach n in namer namem {
+						tempvar p_``n''_`v' m_``n''_`v'
+
+						* predicted poor status
+						gen     `p_``n''_`v'' = . 
+						replace `p_``n''_`v'' = 1 if `Y_``n''' < `pl'
+						replace `p_``n''_`v'' = 0 if `Y_``n''' > `pl' & `Y_``n''' <.
+						
+						*mobility
+						gen     `m_``n''_`v'' = .
+						replace `m_``n''_`v'' = 1 if `p_a_`v'' == 1 & `p_``n''_`v'' == 1 
+						replace `m_``n''_`v'' = 2 if `p_a_`v'' == 0 & `p_``n''_`v'' == 1 
+						replace `m_``n''_`v'' = 3 if `p_a_`v'' == 1 & `p_``n''_`v'' == 0 
+						replace `m_``n''_`v'' = 4 if `p_a_`v'' == 0 & `p_``n''_`v'' == 0 
+						
+						/*==================================================
+														gen variables
+						==================================================*/
+						* -------- Poverty Status
+						if ("`genp'" != "") {
+							
+							foreach x in p_``n''_`v' m_``n''_`v' {
+								
+								cap confirm new var `x'
+								if (_rc) {
+									if ("`replace'" != "") drop `x'
+									else {
+										noi disp in red "variable `x' already exist. use option replace"
+										error
+									}
+								}
+								clonevar `x' = ``x''
+							
+							} // end of poor status and mobility
+							
+						}  // end of generate poverty status variables
+						
+						*------- Save file
+						merge 1:1 `hhid' using `idfile', nogen keep(using)
+						save `idfile', replace
+						
+					} // end of welfare loop
+				} // end of poverty line loop
+				if (`delta' == 0) continue, break
+			} // end of gammas loop
+				
+		} // end of deltas loop (0, 1)
+	
+	} // end of alphas loop 
+	
+} // end of regression model selection 
+
+
+use `idfile', clear
+
+/*==================================================
+							define label
+==================================================*/
+
+
+label define mobility         /* 
+ */  1 "remained poor"        /* 
+ */  2 "fell into poverty"    /*  
+ */  3 "escaped poverty"      /* 
+ */  4 "remained non-poor"
+ 
+label define poor        /* 
+ */ 1 "poor"             /* 
+ */ 0 "non-poor"
+
+ if ("`genp'" != "") {
+	label values m_* mobility
+	label values p_* `poor_`v'' poor
+}
+
+
+/*==================================================
+        Display results
+==================================================*/
+*----------
+
+*----------
+*----------
+
+
+} // end of qui
+
+
+end
+
+mata
+
+void _randvalues(real scalar nrep, real scalar N2, 
+                 real colvector res, real colvector Y) {
+
+	rseed(76543219)
+	
+	yrows = rows(res)                            // No. of rows
+	p = J(yrows,1,1/yrows)                       // matrix with probabilities
+	index = rdiscrete(N2,nrep,p)                 // nrep random indeces 
+	
+	for(i=1;i<=nrep;i++) {                       // loop to create nrep 
+		if  ( i == 1) R = res[index[,i],1]         
+		else          R = R, res[index[,i],1]
+	}
+	
+	res = mean(R')'
+	
+	index = rdiscrete(N2,1,p)
+	Y = Y[index[,1],1]
+}
+			
+end
+
+
+
+
+exit
+/* End of do-file */
+
+><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><
+
+Notes:
+1.
+2.
+3.
+
+
+Version Control:
+
+	
+sysuse auto, clear
+putmata Y=price  res=trunk, replace
+drop _all
+local N2 = 135
+local nrep = 200
+mata: _randvalues(`nrep', `N2', res, Y)		
+getmata y_m=Y res1=res
+
+*****************************8
 
 *---------- Methodology
 
@@ -193,166 +621,11 @@ while ("``i''" != "") {
 	local ++i
 }	
 
-if ("`method'" == "lasso") local regcmd = "lasso2"
-
-
-
-
-
-*----------
-*----------
-*----------
-*----------
-*----------
-
-
-/*==================================================
-          Implementation of method
-==================================================*/
-
-
-*----------implementation
-
-`regcmd' `yvar' `xvar', `options'
-* noi return list 
-* noi ereturn list 
-
-if ("`method'" == "lasso") {
-	
-	if ("`mincrit'" == "") {
-		local mincrit = "aic" // bic ebic aicc
-	}
-	local lmin  = r(l`mincrit'id)
-}
-return add
  
-
-*----------predict
-use `fy2', clear
-
-tempvar yhat
-predict double `yhat', xb lid(`lmin')
-
-if ("`log'" != "nolog") {      // transform back to nominal scale
-	replace `yhat' = exp(`yhat') 
-}
-
-* create 
-if ("`using'" != "") {
-	local v = 0
-	foreach pl of local plvalues {
-		local ++v
-		local plvar: word `v' of `plvars'
-		gen `plvar' = `pl'
-	}
-}
-
-
-/*==================================================
-       Calculate  poor status and mobility 
-==================================================*/
-
-*---------- define label
-
-label define mobility         /* 
- */  1 "remained poor"        /* 
- */  2 "fell into poverty"    /*  
- */  3 "escaped poverty"      /* 
- */  4 "remained non-poor"
- 
-label define poor        /* 
- */ 1 "poor"             /* 
- */ 0 "non-poor"
-
-
-local v = 0
-foreach pl of local plvars {
-	local ++v
-	tempvar poor_`v' poor_`v'_pr mobility_`v'
-
-	* Actual poor status
-	gen `poor_`v'' = . 
-	replace `poor_`v'' = 1 if `yvar' < `pl'
-	replace `poor_`v'' = 0 if `yvar' > `pl' & `yvar' <.
-	
-	* predicted poor status
-	gen `poor_`v'_pr' = . 
-	replace `poor_`v'_pr' = 1 if `yhat' < `pl'
-	replace `poor_`v'_pr' = 0 if `yhat' > `pl' & `yhat' <.
-	
-	*mobility
-	gen `mobility_`v'' = .
-	replace `mobility_`v'' = 1 if `poor_`v'' == 1 & `poor_`v'_pr' == 1 
-	replace `mobility_`v'' = 2 if `poor_`v'' == 0 & `poor_`v'_pr' == 1 
-	replace `mobility_`v'' = 3 if `poor_`v'' == 1 & `poor_`v'_pr' == 0 
-	replace `mobility_`v'' = 4 if `poor_`v'' == 0 & `poor_`v'_pr' == 0 
-	
-	label values `mobility_`v'' mobility
-	label values `poor_`v'_pr' `poor_`v'' poor
-}
-
-
-
-/*==================================================
-        Display results
-==================================================*/
-*----------
-
-*----------
-*----------
-
-
-/*==================================================
-        gen variables
-==================================================*/
-
-if ("`gen'" != "nogen") {
-	
-	local v = 0
-	foreach pl of local plvars {
-		local ++v
-		local i = `v'
-		
-		if (wordcount("`plvars'") == 1 ) local i = ""
-		* Mobility
-		if ("`mbname'" == "") local mbname2 = "mobility`i'"
-		else                  local mbname2 = "`mbname'`i'"
-		clonevar `mbname2' = `mobility_`v''
-		
-		* Actual poverty
-		if ("`apname'" == "") local apname2 = "poor`i'"
-		else                  local apname2 = "`apname'`i'"
-		clonevar `apname2' = `poor_`v''
-		
-		* Predicted poverty 
-		if ("`ppname'" == "") local ppname2 = "poor`i'_pr"
-		else                  local ppname2 = "`ppname'`i'"
-		clonevar `ppname2' = `poor_`v'_pr'
-	}
-
-}  // end of no gen
-
-*welfare variable
-if ("`wfname'" == "") local wfname = "`yvar'_p"
-clonevar `wfname' = `yhat'
-
-
-} // end of qui
-
-
-end
-exit
-/* End of do-file */
-
-><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><
-
-Notes:
-1.
-2.
-3.
-
-
-Version Control:
+gen a = `y_pred'
+gen b = `y1'
+sum b, det
+mdensity a b if b < r(p90)
 
 
 local method "lasso2, mincrit(aic) hola(chao) adios"
@@ -389,42 +662,6 @@ while ("``i''" != "") {
                
 ==================================================*/
 
-/*==================================================
-               
-==================================================*/
 
-/*==================================================
-               
-==================================================*/
-
-/*==================================================
-               
-==================================================*/
-
-
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-*----------
-
-*----------
 *----------
 *----------
