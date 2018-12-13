@@ -25,22 +25,28 @@
 {syntab:Main}
 {synopt:{opt plvar:s(varlist)}} set of variables with poverty lines values{p_end}
 {synopt:{opt plval:ues(numlist)}} set of values of poverty lines{p_end}
-{synopt:{opt met:hod(string)}} estimation method. default {it: lasso}{p_end}
 {synopt:{opt noLOG}} no transformation to log scale of welfare variable.
 default is to transform to log scale{p_end}
+{synopt:{opt hhid}}{p_end}
+
+{syntab:model specification}
+{synopt:{opt lam:bdas(numlist)}}{p_end}
+{synopt:{opt alp:has(>=0 <=1)}}{p_end}
+{synopt:{opt gam:mas(>=0 <=1)}}{p_end}
+{synopt:{opt del:tas(0|1|0 1)}}{p_end}
+{synopt:{opt regm:odels(string)}}{p_end}
 
 {syntab:generate}
-{synopt:{opt noGEN}} no generate mobility and poverty status variables. 
-Predicted welfare variable is always generated. {p_end}
-{synopt:{opt wf:name(string)}} name for predicted welfare variable. Default is 
-{it:depvar}_p{p_end}
-{synopt:{opt mb:name(string)}} name for predicted mobility variable. Default is 
-mobility{p_end}
-{synopt:{opt ap:name(string)}} name for actual poverty status variable. Default is 
-poor{p_end}
-{synopt:{opt pp:name(string)}} name for predicted poverty status variable. Default is 
-poor_p{p_end}
-{synopt:{opt *			}} options for {p_end}
+{synopt:{opt genp}} generate mobility and poverty status variables. {p_end}
+{synopt:{opt nogeny}} No generate predicted welfare variable. {p_end}
+{synopt:{opt replace}} Replace existing output variables {p_end}
+
+{syntab:Advance}
+{synopt:{opt rego:pts}} specific options for regress command{p_end}
+{synopt:{opt laso:pts}} specific options for lasso2 command{p_end}
+{synopt:{opt lasmin:crit}} minimum criterion for lasso2{p_end}
+{synopt:{opt nr:ep}} No. of repetitions for upper bound in synthetic panel{p_end}
+
 
 {syntab:Alternative syntax}
 {synopt:{opt y:var(varname)}} alternative syntax for dependent variable{p_end}

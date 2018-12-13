@@ -22,7 +22,6 @@ syntax [anything(name=equation id="equation list")] [if] [in] [using/] [aw fw iw
 		*/  Xvar(varlist)                         /*  Covariates
 		*/  PLVALues(numlist)                     /*  Poverty lines values
 		*/  PLVARs(varlist)                       /*  Poverty lines variable
-		*/  METhod(string)                        /*  Estimation methodology
 		*/  by(varname numeric)                   /*  by, in case using not selected
 		*/  reverse                               /*  Reverse order in by(varname)
 		*/  LAMbdas(numlist)                      /*  Lambda
@@ -41,15 +40,18 @@ syntax [anything(name=equation id="equation list")] [if] [in] [using/] [aw fw iw
 		*/  GENP                                  /*  Generate pov status variable
 		*/  NRep(integer 100)                     /*  Replace existing variables
 		*/  replace                               /*  Replace existing variables
-		*/ 	*			                                /// options for other commands 
-		]  
+		*/  pause                                 /*  for debuggin. 
+		*/ 	]  
 
 marksample touse
-		
+
 		
 /*==================================================
               1: Conditions
 ==================================================*/
+
+if ("`pause'" == "pause") pause on
+else                      pause off
 
 qui {
 
@@ -234,7 +236,7 @@ if ("`using'" != "") {
 	}
 	local N2  = `r(N)'
 	save `idfile'
-
+	
 }
 
 
@@ -378,6 +380,16 @@ foreach regm of local regmodels {
 		merge 1:1 __order using `res1file', nogen 
 		drop __order
 		
+		* create  if two data bases were used
+		if ("`using'" != "") {
+			local v = 0
+			foreach pl of local plvalues {
+				local ++v
+				local plvar: word `v' of `plvars'
+				gen `plvar' = `pl'
+			}
+		}
+		
 		foreach delta of local deltas {
 			
 			foreach gamma of local gammas {
@@ -397,16 +409,6 @@ foreach regm of local regmodels {
 				gen __order = _n
 				merge 1:1 __order using `match',  nogen /* keep(match) */
 				drop __order
-				
-				* create  if two data bases were used
-				if ("`using'" != "") {
-					local v = 0
-					foreach pl of local plvalues {
-						local ++v
-						local plvar: word `v' of `plvars'
-						gen `plvar' = `pl'
-					}
-				}
 				
 				 
 				local namer = "r_`l'_`alname'_`delta'_`ganame'" // rescaled
@@ -439,23 +441,23 @@ foreach regm of local regmodels {
 				foreach pl of local plvars {
 					local ++v
 					
-					tempvar p_a_`v' p_a_`v'
+					tempvar p_a_a_a_a_a_`v'
           
 					* Actual poor status
-					gen     `p_a_`v'' = . 
-					replace `p_a_`v'' = 1 if `yvar' < `pl'
-					replace `p_a_`v'' = 0 if `yvar' > `pl' & `yvar' <.
+					gen     `p_a_a_a_a_a_`v'' = . 
+					replace `p_a_a_a_a_a_`v'' = 1 if `yvar' < `pl'
+					replace `p_a_a_a_a_a_`v'' = 0 if `yvar' > `pl' & `yvar' <.
 					
 					if ("`genp'" != "" & "`p_a_ok`v''" != "ok") {
-							cap confirm new var p_a_`v'
+							cap confirm new var p_a_a_a_a_a_`v'
 							if (_rc) {
-								if ("`replace'" != "") drop p_a_`v'
+								if ("`replace'" != "") drop p_a_a_a_a_a_`v'
 								else {
-									noi disp in red "variable p_a_`v' already exist. use option replace"
+									noi disp in red "variable p_a_a_a_a_a_`v' already exist. use option replace"
 									error
 								}
 							}
-							clonevar p_a_`v' = `p_a_`v''
+							clonevar p_a_a_a_a_a_`v' = `p_a_a_a_a_a_`v''
 							local p_a_ok`v' "ok"
 					}  // end of generate poverty status variables
 					
@@ -469,10 +471,10 @@ foreach regm of local regmodels {
 						
 						*mobility
 						gen     `m_``n''_`v'' = .
-						replace `m_``n''_`v'' = 1 if `p_a_`v'' == 1 & `p_``n''_`v'' == 1 
-						replace `m_``n''_`v'' = 2 if `p_a_`v'' == 0 & `p_``n''_`v'' == 1 
-						replace `m_``n''_`v'' = 3 if `p_a_`v'' == 1 & `p_``n''_`v'' == 0 
-						replace `m_``n''_`v'' = 4 if `p_a_`v'' == 0 & `p_``n''_`v'' == 0 
+						replace `m_``n''_`v'' = 1 if `p_a_a_a_a_a_`v'' == 1 & `p_``n''_`v'' == 1 
+						replace `m_``n''_`v'' = 2 if `p_a_a_a_a_a_`v'' == 0 & `p_``n''_`v'' == 1 
+						replace `m_``n''_`v'' = 3 if `p_a_a_a_a_a_`v'' == 1 & `p_``n''_`v'' == 0 
+						replace `m_``n''_`v'' = 4 if `p_a_a_a_a_a_`v'' == 0 & `p_``n''_`v'' == 0 
 						
 						/*==================================================
 														gen variables
@@ -496,9 +498,6 @@ foreach regm of local regmodels {
 							
 						}  // end of generate poverty status variables
 						
-						*------- Save file
-						merge 1:1 `hhid' using `idfile', nogen keep(using)
-						save `idfile', replace
 						
 					} // end of welfare loop
 				} // end of poverty line loop
@@ -506,7 +505,14 @@ foreach regm of local regmodels {
 			} // end of gammas loop
 				
 		} // end of deltas loop (0, 1)
-	
+		*------- Save file
+		
+		pause before merging with  idfile 
+		merge 1:1 `hhid' using `idfile',  nogen keep(using match)
+		save `idfile', replace
+		
+		pause after merging with  idfile 
+		
 	} // end of alphas loop 
 	
 } // end of regression model selection 
@@ -529,10 +535,66 @@ label define poor        /*
  */ 1 "poor"             /* 
  */ 0 "non-poor"
 
+
  if ("`genp'" != "") {
 	label values m_* mobility
 	label values p_* `poor_`v'' poor
+	local created "m p"
 }
+
+if ("`geny'" != "nogeny") {
+	local created "`created' Y"
+}
+
+
+cap foreach x of local created {
+	desc `x'_*, varlist
+	local vars "`r(varlist)'"
+	
+	foreach var of local vars {
+		
+		tokenize `var', parse(_)
+		
+		
+		if ("`1'" == "p") local type "Poverty,"
+		else if ("`1'" == "m") local type "Mobility,"
+		else if ("`1'" == "Y") local type "Welfare,"
+		else local type ""
+		
+		
+		if ("`3'" == "r") local adjt "re-scaled,"
+		else if ("`3'" == "m") local adjt "matched,"
+		else if ("`3'" == "a") local adjt "actual,"
+		else local adjt  ""
+		
+		if      ("`5'" == "p") local method "elastic net,"
+		else if ("`5'" == "0") local method "OLS,"
+		else                   local method ""
+		
+		cap confirm number `7'
+		if (_rc ==0) local alphat "Alpha: `=`7'/100',"
+		else     local alphat ""
+		
+		if      ("`9'" == "0") local syntht "Simple,"
+		else if ("`9'" == "1") local syntht "Synthetic panel,"
+		else                   local syntht ""
+		
+		cap confirm number `11'
+		if (_rc ==0) local gammat "Gamma: `=`11'/100',"
+		else         local gammat ""
+		
+		cap confirm number `13'
+		if (_rc ==0) local plt "Pov. line `13'"
+		else local plt ""
+		
+		*noi disp "`type', `adjt', `method'`alphat' `syntht'`gammat' `plt'"
+		label var `var' "`type' `adjt' `method' `alphat' `syntht' `gammat' `plt'"
+	
+	}
+	
+}
+
+
 
 
 /*==================================================
