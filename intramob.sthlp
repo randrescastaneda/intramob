@@ -116,7 +116,19 @@ The paremeters above correspond to the following ({stata intramob_eq equations :
 {marker examples}{...}
 {title:Examples}
 
-{phang} <insert example command>
+{p 4 4 4}use "$input\modified dataset\cross 10.dta", clear{p_end}
+{p 4 4 4}gen ipcf = exp(lipcf){p_end}
+{p 4 4 4}drop lipcf{p_end}
+{p 4 4 4}desc, varlist{p_end}
+{p 4 4 4}local vars = "`r(varlist)'"{p_end}
+{p 4 4 4}local  depvar ipcf{p_end}
+{p 4 4 4}global depvar `depvar'{p_end}
+{p 4 4 4}global indvars: list vars - depvar{p_end}
+
+{p 4 4 4}{cmd:intramob} $depvar $indvars /* {p_end}
+{p 8 8 4}*/  using "$input\modified dataset/cross 11.dta", genp /*{p_end}
+{p 8 8 4}*/  alpha(0 0.5 1) gamma(0 0.5 1) delta(0 1) hhid(id) {p_end}
+
 
 {title:Authors}
 
