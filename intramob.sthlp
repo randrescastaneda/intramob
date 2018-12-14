@@ -30,10 +30,10 @@ default is to transform to log scale{p_end}
 {synopt:{opt hhid}}{p_end}
 
 {syntab:model specification}
-{synopt:{opt lam:bdas(numlist)}}{p_end}
-{synopt:{opt alp:has(>=0 <=1)}}{p_end}
-{synopt:{opt gam:mas(>=0 <=1)}}{p_end}
-{synopt:{opt del:tas(0|1|0 1)}}{p_end}
+{synopt:{opt lam:bda(numlist)}}{p_end}
+{synopt:{opt alp:ha(>=0 <=1)}}{p_end}
+{synopt:{opt gam:ma(>=0 <=1)}}{p_end}
+{synopt:{opt del:ta(0|1|0 1)}}{p_end}
 {synopt:{opt regm:odels(string)}}{p_end}
 
 {syntab:generate}
@@ -63,6 +63,9 @@ that {it:by()} contains variable that splits data into master and using datasets
 {title:Description}
 {pstd}
 {cmd:intramob} does ... <insert description>
+
+{phang} 
+The paremeters above correspond to the following ({stata intramob_eq equations :equations})
 
 {marker options}{...}
 {title:Options}
