@@ -390,20 +390,23 @@ foreach regm of local regmodels {
 			}
 		}
 		
+
 		foreach delta of local deltas {
 			
 			foreach gamma of local gammas {
-				
-				if (`delta' == 1) local ganame = round(`gamma'*100, 1)
-				else              local ganame = "na"
-					
+		
 				tempvar y_pred
+				if (`delta' == 0) {
+					local ganame = "na"
+					gen double `y_pred' = (((`yhat'- `mu2') / `sd2') * `sd1') + `mu1'
+				}
 				
-				gen double `y_pred' = `yhat' + ((`res1' *(1-`gamma')) +  /* 
-				 */        (`res2' * `gamma' * (`sd1'/`sd2')))*`delta'
-				 
-				
-				* replace `y_pred' = (((`y_pred'- `mu2') / `sd2') * `sd1') + `mu1'
+				else {
+					local ganame = round(`gamma'*100, 1)
+						
+					gen double `y_pred' = `yhat' + ((`res1' *(1-`gamma')) +  /* 
+					 */        (`res2' * `gamma' * (`sd1'/`sd2')))*`delta'
+				}
 				
 				sort `y_pred'
 				gen __order = _n
@@ -501,9 +504,9 @@ foreach regm of local regmodels {
 						
 					} // end of welfare loop
 				} // end of poverty line loop
+				
 				if (`delta' == 0) continue, break
 			} // end of gammas loop
-				
 		} // end of deltas loop (0, 1)
 		*------- Save file
 		
